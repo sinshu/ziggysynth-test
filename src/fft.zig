@@ -110,7 +110,7 @@ fn fftc(t0: f64, n: u32, c: [*]CN, r: [*]CN) void {
         const k: u32 = @ctz(n);
         var i: u32 = 0;
         while (i < n) : (i += 1) {
-            r[i] = c[@call(.always_inline, revbit, .{k, i})];
+            r[i] = c[@call(.always_inline, revbit, .{ k, i })];
         }
     }
     var t = t0;
@@ -124,7 +124,7 @@ fn fftc(t0: f64, n: u32, c: [*]CN, r: [*]CN) void {
             while (i < nh) : (i += 1) {
                 const li = s + i;
                 const ri = li + nh;
-                const re = r[ri].mul(CN.expi(t * @intToFloat(f64, i)));
+                const re = r[ri].mul(CN.expi(t * @floatFromInt(f64, i)));
                 const l = r[li];
                 r[li] = l.add(re);
                 r[ri] = l.sub(re);
@@ -137,7 +137,7 @@ pub fn fft(n: u32, f: [*]CN, F: [*]CN) void {
 }
 pub fn ifft(n: u32, F: [*]CN, f: [*]CN) void {
     fftc(2.0 * pi, n, F, f);
-    const nf64 = @intToFloat(f64, n);
+    const nf64 = @floatFromInt(f64, n);
     var i: u32 = 0;
     while (i < n) : (i += 1) {
         f[i] = f[i].rdiv(nf64);
@@ -165,7 +165,7 @@ test "fft/ifft" {
     {
         var i: u32 = 0;
         while (i < n) : (i += 1) {
-            f[i] = CN.rect(@intToFloat(f64, v[i]), 0.0);
+            f[i] = CN.rect(@floatFromInt(f64, v[i]), 0.0);
         }
     }
     warn("\n[f]\n");
@@ -184,7 +184,7 @@ test "fft/ifft" {
     {
         var i: u32 = 0;
         while (i < n) : (i += 1) {
-            assert(abs(r[i].re - @intToFloat(f64, v[i])) < eps);
+            assert(abs(r[i].re - @floatFromInt(f64, v[i])) < eps);
         }
     }
 }

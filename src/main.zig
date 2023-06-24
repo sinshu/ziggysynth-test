@@ -72,18 +72,17 @@ pub fn main() anyerror!void {
     rl.SetTargetFPS(60);
 
     while (!rl.WindowShouldClose()) {
-
         if (rl.IsAudioStreamProcessed(stream)) {
             sequencer.render(&left, &right);
             for (0..buffer_size) |t| {
-                var left_sample_i32: i32 = @floatToInt(i32, 32768.0 * left[t]);
+                var left_sample_i32: i32 = @intFromFloat(i32, 32768.0 * left[t]);
                 if (left_sample_i32 < -32768) {
                     left_sample_i32 = -32768;
                 }
                 if (left_sample_i32 > 32767) {
                     left_sample_i32 = 32767;
                 }
-                var right_sample_i32: i32 = @floatToInt(i32, 32768.0 * right[t]);
+                var right_sample_i32: i32 = @intFromFloat(i32, 32768.0 * right[t]);
                 if (right_sample_i32 < -32768) {
                     right_sample_i32 = -32768;
                 }
@@ -103,9 +102,9 @@ pub fn main() anyerror!void {
 
         fft(buffer_size, &fft_in, &fft_out);
 
-        var backColor = rl.Color{.r = 0x00, .g = 0x69, .b = 0x5C, .a = 0xFF};
-        var barColor = rl.Color{.r = 0x00, .g = 0x96, .b = 0x88, .a = 0xFF};
-        var textColor = rl.Color{.r = 0xB2, .g = 0xDF, .b = 0xDB, .a = 0xFF};
+        var backColor = rl.Color{ .r = 0x00, .g = 0x69, .b = 0x5C, .a = 0xFF };
+        var barColor = rl.Color{ .r = 0x00, .g = 0x96, .b = 0x88, .a = 0xFF };
+        var textColor = rl.Color{ .r = 0xB2, .g = 0xDF, .b = 0xDB, .a = 0xFF };
 
         rl.BeginDrawing();
         rl.ClearBackground(backColor);
@@ -121,8 +120,8 @@ pub fn main() anyerror!void {
             } else {
                 smoothed[t] = 0.95 * smoothed[t] + 0.05 * val;
             }
-            const top = @intToFloat(f32, screen_height) - smoothed[t];
-            rl.DrawRectangle(@intCast(c_int, 4 * t), @floatToInt(i32, top), 2, @floatToInt(i32, smoothed[t]) + 2, barColor);
+            const top = @floatFromInt(f32, screen_height) - smoothed[t];
+            rl.DrawRectangle(@intCast(c_int, 4 * t), @intFromFloat(i32, top), 2, @intFromFloat(i32, smoothed[t]) + 2, barColor);
         }
 
         rl.EndDrawing();
