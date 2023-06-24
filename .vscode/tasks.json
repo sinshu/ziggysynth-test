@@ -1,0 +1,23 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "zig build",
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "test",
+            "type": "shell",
+            "command": "zig build test",
+            "group": "test",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        }
+    ]
+}
