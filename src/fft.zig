@@ -87,7 +87,7 @@ test "CN array" {
 // reverse as k-bit
 fn revbit(k: u32, n0: u32) u32 {
     //NOTE: @bitreverse will be renamed to @bitReverse on zig-0.5.0
-    return @bitReverse(n0) >> @truncate(u5, 32 - k);
+    return @bitReverse(n0) >> @as(u5, @truncate(32 - k));
 }
 
 test "revbit" {
@@ -124,7 +124,7 @@ fn fftc(t0: f64, n: u32, c: [*]CN, r: [*]CN) void {
             while (i < nh) : (i += 1) {
                 const li = s + i;
                 const ri = li + nh;
-                const re = r[ri].mul(CN.expi(t * @floatFromInt(f64, i)));
+                const re = r[ri].mul(CN.expi(t * @as(f64, @floatFromInt(i))));
                 const l = r[li];
                 r[li] = l.add(re);
                 r[ri] = l.sub(re);
@@ -137,7 +137,7 @@ pub fn fft(n: u32, f: [*]CN, F: [*]CN) void {
 }
 pub fn ifft(n: u32, F: [*]CN, f: [*]CN) void {
     fftc(2.0 * pi, n, F, f);
-    const nf64 = @floatFromInt(f64, n);
+    const nf64 = @as(f64, @floatFromInt(n));
     var i: u32 = 0;
     while (i < n) : (i += 1) {
         f[i] = f[i].rdiv(nf64);
@@ -165,7 +165,7 @@ test "fft/ifft" {
     {
         var i: u32 = 0;
         while (i < n) : (i += 1) {
-            f[i] = CN.rect(@floatFromInt(f64, v[i]), 0.0);
+            f[i] = CN.rect(@as(f64, @floatFromInt(v[i])), 0.0);
         }
     }
     warn("\n[f]\n");
@@ -184,7 +184,7 @@ test "fft/ifft" {
     {
         var i: u32 = 0;
         while (i < n) : (i += 1) {
-            assert(abs(r[i].re - @floatFromInt(f64, v[i])) < eps);
+            assert(abs(r[i].re - @as(f64, @floatFromInt(v[i]))) < eps);
         }
     }
 }

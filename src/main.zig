@@ -75,22 +75,22 @@ pub fn main() anyerror!void {
         if (rl.IsAudioStreamProcessed(stream)) {
             sequencer.render(&left, &right);
             for (0..buffer_size) |t| {
-                var left_sample_i32: i32 = @intFromFloat(i32, 32768.0 * left[t]);
+                var left_sample_i32: i32 = @intFromFloat(32768.0 * left[t]);
                 if (left_sample_i32 < -32768) {
                     left_sample_i32 = -32768;
                 }
                 if (left_sample_i32 > 32767) {
                     left_sample_i32 = 32767;
                 }
-                var right_sample_i32: i32 = @intFromFloat(i32, 32768.0 * right[t]);
+                var right_sample_i32: i32 = @intFromFloat(32768.0 * right[t]);
                 if (right_sample_i32 < -32768) {
                     right_sample_i32 = -32768;
                 }
                 if (right_sample_i32 > 32767) {
                     right_sample_i32 = 32767;
                 }
-                var left_sample_i16 = @truncate(i16, left_sample_i32);
-                var right_sample_i16 = @truncate(i16, right_sample_i32);
+                var left_sample_i16: i16 = @truncate(left_sample_i32);
+                var right_sample_i16: i16 = @truncate(right_sample_i32);
                 buffer[2 * t] = left_sample_i16;
                 buffer[2 * t + 1] = right_sample_i16;
 
@@ -114,14 +114,14 @@ pub fn main() anyerror!void {
         const lim = screen_width / 4;
         for (0..lim) |t| {
             const c = fft_out[t];
-            const val = @floatCast(f32, 100 * @max(@log10(c.re * c.re + c.im * c.im) + 1.5, 0.0));
+            const val = @as(f32, @floatCast(100 * @max(@log10(c.re * c.re + c.im * c.im) + 1.5, 0.0)));
             if (val > smoothed[t]) {
                 smoothed[t] = 0.5 * smoothed[t] + 0.5 * val;
             } else {
                 smoothed[t] = 0.95 * smoothed[t] + 0.05 * val;
             }
-            const top = @floatFromInt(f32, screen_height) - smoothed[t];
-            rl.DrawRectangle(@intCast(c_int, 4 * t), @intFromFloat(i32, top), 2, @intFromFloat(i32, smoothed[t]) + 2, barColor);
+            const top = @as(f32, @floatFromInt(screen_height)) - smoothed[t];
+            rl.DrawRectangle(@as(c_int, @intCast(4 * t)), @as(i32, @intFromFloat(top)), 2, @as(i32, @intFromFloat(smoothed[t])) + 2, barColor);
         }
 
         rl.EndDrawing();
