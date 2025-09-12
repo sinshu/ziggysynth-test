@@ -33,13 +33,13 @@ const ArrayMath = struct {
 const BinaryReader = struct {
     fn read(comptime T: type, reader: anytype) !T {
         var data: [@sizeOf(T)]u8 = undefined;
-        _ = try reader.readNoEof(&data);
+        _ = try reader.readSliceAll(&data);
         return @bitCast(data);
     }
 
     fn readBigEndian(comptime T: type, reader: anytype) !T {
         var data: [@sizeOf(T)]u8 = undefined;
-        _ = try reader.readNoEof(&data);
+        _ = try reader.readSliceAll(&data);
         return @byteSwap(@as(T, @bitCast(data)));
     }
 
@@ -63,6 +63,32 @@ const BinaryReader = struct {
     }
 };
 
+fn ReadCounter(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        reader: T,
+        count: usize,
+
+        fn init(reader: T) Self {
+            return Self{
+                .reader = reader,
+                .count = 0,
+            };
+        }
+
+        fn readSliceAll(self: *Self, buf: []u8) !void {
+            try self.reader.readSliceAll(buf);
+            self.count += buf.len;
+        }
+
+        fn discardAll(self: *Self, n: usize) !void {
+            try self.reader.discardAll(n);
+            self.count += @intCast(n);
+        }
+    };
+}
+
 pub const SoundFont = struct {
     const Self = @This();
 
@@ -74,7 +100,7 @@ pub const SoundFont = struct {
     instruments: []Instrument,
     instrument_regions: []InstrumentRegion,
 
-    pub fn init(allocator: Allocator, reader: anytype) !Self {
+    pub fn init(allocator: Allocator, reader: *std.Io.Reader) !Self {
         var wave_data: ?[]i16 = null;
         var sample_headers: ?[]SampleHeader = null;
         var presets: ?[]Preset = null;
@@ -135,14 +161,14 @@ pub const SoundFont = struct {
         self.allocator.free(self.instrument_regions);
     }
 
-    fn skipInfo(reader: anytype) !void {
+    fn skipInfo(reader: *std.Io.Reader) !void {
         const chunk_id = try BinaryReader.read([4]u8, reader);
         if (!mem.eql(u8, &chunk_id, "LIST")) {
             return ZiggySynthError.InvalidSoundFont;
         }
 
         const size = try BinaryReader.read(u32, reader);
-        try reader.skipBytes(size, .{});
+        try reader.discardAll(size);
     }
 };
 
@@ -152,7 +178,7 @@ const SoundFontSampleData = struct {
     bits_per_sample: i32,
     wave_data: []i16,
 
-    fn init(allocator: Allocator, reader: anytype) !Self {
+    fn init(allocator: Allocator, reader: *std.Io.Reader) !Self {
         var wave_data: ?[]i16 = null;
 
         errdefer {
@@ -165,31 +191,25 @@ const SoundFontSampleData = struct {
         }
 
         const end = try BinaryReader.read(u32, reader);
-        var pos: u32 = 0;
+        var rc = ReadCounter(@TypeOf(reader)).init(reader);
 
-        const list_type = try BinaryReader.read([4]u8, reader);
+        const list_type = try BinaryReader.read([4]u8, &rc);
         if (!mem.eql(u8, &list_type, "sdta")) {
             return ZiggySynthError.InvalidSoundFont;
         }
-        pos += 4;
 
-        while (pos < end) {
-            const id = try BinaryReader.read([4]u8, reader);
-            pos += 4;
-
-            const size = try BinaryReader.read(u32, reader);
-            pos += 4;
+        while (rc.count < end) {
+            const id = try BinaryReader.read([4]u8, &rc);
+            const size = try BinaryReader.read(u32, &rc);
 
             if (mem.eql(u8, &id, "smpl")) {
                 wave_data = try allocator.alloc(i16, size / 2);
-                try reader.readNoEof(@as([*]u8, @ptrCast(wave_data.?.ptr))[0..size]);
+                try rc.readSliceAll(@as([*]u8, @ptrCast(wave_data.?.ptr))[0..size]);
             } else if (mem.eql(u8, &id, "sm24")) {
-                try reader.skipBytes(size, .{});
+                try rc.discardAll(size);
             } else {
                 return ZiggySynthError.InvalidSoundFont;
             }
-
-            pos += size;
         }
 
         _ = wave_data orelse return ZiggySynthError.InvalidSoundFont;
@@ -210,7 +230,7 @@ const SoundFontParameters = struct {
     instruments: []Instrument,
     instrument_regions: []InstrumentRegion,
 
-    fn init(allocator: Allocator, reader: anytype) !Self {
+    fn init(allocator: Allocator, reader: *std.Io.Reader) !Self {
         var preset_infos: ?[]PresetInfo = null;
         var preset_bag: ?[]ZoneInfo = null;
         var preset_generators: ?[]Generator = null;
@@ -238,44 +258,38 @@ const SoundFontParameters = struct {
         }
 
         const end = try BinaryReader.read(u32, reader);
-        var pos: u32 = 0;
+        var rc = ReadCounter(@TypeOf(reader)).init(reader);
 
-        const list_type = try BinaryReader.read([4]u8, reader);
+        const list_type = try BinaryReader.read([4]u8, &rc);
         if (!mem.eql(u8, &list_type, "pdta")) {
             return ZiggySynthError.InvalidSoundFont;
         }
-        pos += 4;
 
-        while (pos < end) {
-            const id = try BinaryReader.read([4]u8, reader);
-            pos += 4;
-
-            const size = try BinaryReader.read(u32, reader);
-            pos += 4;
+        while (rc.count < end) {
+            const id = try BinaryReader.read([4]u8, &rc);
+            const size = try BinaryReader.read(u32, &rc);
 
             if (mem.eql(u8, &id, "phdr")) {
-                preset_infos = try PresetInfo.readFromChunk(allocator, reader, size);
+                preset_infos = try PresetInfo.readFromChunk(allocator, &rc, size);
             } else if (mem.eql(u8, &id, "pbag")) {
-                preset_bag = try ZoneInfo.readFromChunk(allocator, reader, size);
+                preset_bag = try ZoneInfo.readFromChunk(allocator, &rc, size);
             } else if (mem.eql(u8, &id, "pmod")) {
-                try reader.skipBytes(size, .{});
+                try rc.discardAll(size);
             } else if (mem.eql(u8, &id, "pgen")) {
-                preset_generators = try Generator.readFromChunk(allocator, reader, size);
+                preset_generators = try Generator.readFromChunk(allocator, &rc, size);
             } else if (mem.eql(u8, &id, "inst")) {
-                instrument_infos = try InstrumentInfo.readFromChunk(allocator, reader, size);
+                instrument_infos = try InstrumentInfo.readFromChunk(allocator, &rc, size);
             } else if (mem.eql(u8, &id, "ibag")) {
-                instrument_bag = try ZoneInfo.readFromChunk(allocator, reader, size);
+                instrument_bag = try ZoneInfo.readFromChunk(allocator, &rc, size);
             } else if (mem.eql(u8, &id, "imod")) {
-                try reader.skipBytes(size, .{});
+                try rc.discardAll(size);
             } else if (mem.eql(u8, &id, "igen")) {
-                instrument_generators = try Generator.readFromChunk(allocator, reader, size);
+                instrument_generators = try Generator.readFromChunk(allocator, &rc, size);
             } else if (mem.eql(u8, &id, "shdr")) {
-                sample_headers = try SampleHeader.readFromChunk(allocator, reader, size);
+                sample_headers = try SampleHeader.readFromChunk(allocator, &rc, size);
             } else {
                 return ZiggySynthError.InvalidSoundFont;
             }
-
-            pos += size;
         }
 
         _ = preset_infos orelse return ZiggySynthError.InvalidSoundFont;
@@ -379,7 +393,7 @@ const Generator = struct {
     }
 
     fn readFromChunk(allocator: Allocator, reader: anytype, size: usize) ![]Self {
-        if (size % 4 != 0) {
+        if (size == 0 or size % 4 != 0) {
             return ZiggySynthError.InvalidSoundFont;
         }
 
@@ -481,7 +495,7 @@ const Zone = struct {
     fn init(info: *ZoneInfo, generators: []Generator) Self {
         const start = info.generator_index;
         const end = start + info.generator_count;
-        var segment = generators[start..end];
+        const segment = generators[start..end];
 
         return Self{
             .generators = segment,
@@ -528,7 +542,7 @@ const ZoneInfo = struct {
     }
 
     fn readFromChunk(allocator: Allocator, reader: anytype, size: usize) ![]Self {
-        if (size % 4 != 0) {
+        if (size == 0 or size % 4 != 0) {
             return ZiggySynthError.InvalidSoundFont;
         }
 
@@ -916,7 +930,7 @@ const PresetInfo = struct {
     }
 
     fn readFromChunk(allocator: Allocator, reader: anytype, size: usize) ![]Self {
-        if (size % 38 != 0) {
+        if (size == 0 or size % 38 != 0) {
             return ZiggySynthError.InvalidSoundFont;
         }
 
@@ -1340,7 +1354,7 @@ const InstrumentInfo = struct {
     }
 
     fn readFromChunk(allocator: Allocator, reader: anytype, size: usize) ![]Self {
-        if (size % 22 != 0) {
+        if (size == 0 or size % 22 != 0) {
             return ZiggySynthError.InvalidSoundFont;
         }
 
@@ -1405,7 +1419,7 @@ pub const SampleHeader = struct {
     }
 
     fn readFromChunk(allocator: Allocator, reader: anytype, size: usize) ![]Self {
-        if (size % 46 != 0) {
+        if (size == 0 or size % 46 != 0) {
             return ZiggySynthError.InvalidSoundFont;
         }
 
@@ -1430,8 +1444,8 @@ pub const SampleHeader = struct {
 
 const LoopMode = struct {
     const NO_LOOP: i32 = 0;
-    const CONTINUOUS: i32 = 0;
-    const LOOP_UNTIL_NOTE_OFF: i32 = 0;
+    const CONTINUOUS: i32 = 1;
+    const LOOP_UNTIL_NOTE_OFF: i32 = 3;
 };
 
 pub const Synthesizer = struct {
@@ -1487,7 +1501,7 @@ pub const Synthesizer = struct {
             // and the lower 16 bits represent the patch number.
             // This ID is used to search for presets by the combination of bank number
             // and patch number.
-            var preset_id = (preset.getBankNumber() << 16) | preset.getPatchNumber();
+            const preset_id = (preset.getBankNumber() << 16) | preset.getPatchNumber();
             try preset_lookup.put(preset_id, preset);
 
             // The preset with the minimum ID number will be default.
@@ -1675,7 +1689,7 @@ pub const Synthesizer = struct {
             // Try fallback to the GM sound set.
             // Normally, the given patch number + the bank number 0 will work.
             // For drums (bank number >= 128), it seems to be better to select the standard set (128:0).
-            var gm_preset_id = if (channel_info.getBankNumber() < 128) channel_info.getPatchNumber() else (128 << 16);
+            const gm_preset_id = if (channel_info.getBankNumber() < 128) channel_info.getPatchNumber() else (128 << 16);
             if (self.preset_lookup.get(gm_preset_id)) |value| {
                 preset = value;
             } else {
@@ -1801,10 +1815,10 @@ pub const Synthesizer = struct {
 
         if (self.enable_reverb_and_chorus) {
             var chorus = &self.chorus.?;
-            var chorus_input_left = self.chorus_input_left.?;
-            var chorus_input_right = self.chorus_input_right.?;
-            var chorus_output_left = self.chorus_output_left.?;
-            var chorus_output_right = self.chorus_output_right.?;
+            const chorus_input_left = self.chorus_input_left.?;
+            const chorus_input_right = self.chorus_input_right.?;
+            const chorus_output_left = self.chorus_output_left.?;
+            const chorus_output_right = self.chorus_output_right.?;
             for (chorus_input_left, chorus_input_right) |*left, *right| {
                 left.* = 0.0;
                 right.* = 0.0;
@@ -1822,9 +1836,9 @@ pub const Synthesizer = struct {
             ArrayMath.multiplyAdd(self.master_volume, chorus_output_right, self.block_right);
 
             var reverb = &self.reverb.?;
-            var reverb_input = self.reverb_input.?;
-            var reverb_output_left = self.reverb_output_left.?;
-            var reverb_output_right = self.reverb_output_right.?;
+            const reverb_input = self.reverb_input.?;
+            const reverb_output_left = self.reverb_output_left.?;
+            const reverb_output_right = self.reverb_output_right.?;
             for (reverb_input) |*value| {
                 value.* = 0.0;
             }
@@ -1844,7 +1858,7 @@ pub const Synthesizer = struct {
             return;
         }
 
-        if (@fabs(current_gain - previous_gain) < 1.0E-3) {
+        if (@abs(current_gain - previous_gain) < 1.0E-3) {
             ArrayMath.multiplyAdd(current_gain, source, destination);
         } else {
             const step = self.inverse_block_size * (current_gain - previous_gain);
@@ -2444,7 +2458,7 @@ const VoiceCollection = struct {
         for (0..voices.len) |i| {
             const buffer_start = settings.block_size * i;
             const buffer_end = buffer_start + settings.block_size;
-            var block = block_buffer[buffer_start..buffer_end];
+            const block = block_buffer[buffer_start..buffer_end];
             voices[i] = Voice.init(settings, block);
         }
 
@@ -2464,11 +2478,11 @@ const VoiceCollection = struct {
     fn requestNew(self: *Self, region: *InstrumentRegion, channel: i32) ?*Voice {
         // If an exclusive class is assigned to the region, find a voice with the same class.
         // If found, reuse it to avoid playing multiple voices with the same class at a time.
-        var exclusive_class = region.getExclusiveClass();
+        const exclusive_class = region.getExclusiveClass();
         if (exclusive_class != 0) {
             var i: usize = 0;
             while (i < self.active_voice_count) : (i += 1) {
-                var voice = &self.voices[i];
+                const voice = &self.voices[i];
                 if (voice.exclusive_class == exclusive_class and voice.channel == channel) {
                     return voice;
                 }
@@ -2477,7 +2491,7 @@ const VoiceCollection = struct {
 
         // If the number of active voices is less than the limit, use a free one.
         if (self.active_voice_count < self.voices.len) {
-            var free = &self.voices[self.active_voice_count];
+            const free = &self.voices[self.active_voice_count];
             self.active_voice_count += 1;
             return free;
         }
@@ -2487,7 +2501,7 @@ const VoiceCollection = struct {
         var candidate: ?*Voice = null;
         var lowest_priority: f32 = 1000000.0;
         for (self.getActiveVoices()) |*voice| {
-            var priority = voice.getPriority();
+            const priority = voice.getPriority();
             if (priority < lowest_priority) {
                 lowest_priority = priority;
                 candidate = voice;
@@ -2514,7 +2528,7 @@ const VoiceCollection = struct {
             } else {
                 self.active_voice_count -= 1;
 
-                var tmp = self.voices[i];
+                const tmp = self.voices[i];
                 self.voices[i] = self.voices[self.active_voice_count];
                 self.voices[self.active_voice_count] = tmp;
             }
@@ -2629,7 +2643,7 @@ const Oscillator = struct {
         const data = self.data.?;
 
         for (block, 0..block.len) |*dst, t| {
-            const index: usize = @bitCast(self.position_fp >> Oscillator.FRAC_BITS);
+            const index: usize = @intCast(self.position_fp >> Oscillator.FRAC_BITS);
 
             if (index >= self.end) {
                 if (t > 0) {
@@ -2664,7 +2678,7 @@ const Oscillator = struct {
                 self.position_fp -= loop_length_fp;
             }
 
-            const index1: usize = @bitCast(self.position_fp >> Oscillator.FRAC_BITS);
+            const index1: usize = @intCast(self.position_fp >> Oscillator.FRAC_BITS);
             var index2 = index1 + 1;
             if (index2 >= self.end_loop) {
                 index2 -= loop_length;
@@ -3403,22 +3417,22 @@ pub const MidiFile = struct {
 
         var message_lists: [MidiFile.MAX_TRACK_COUNT]ArrayList(Message) = undefined;
         for (0..track_count) |i| {
-            message_lists[i] = ArrayList(Message).init(allocator);
+            message_lists[i] = .empty;
         }
         defer for (0..track_count) |i| {
-            message_lists[i].deinit();
+            message_lists[i].deinit(allocator);
         };
 
         var tick_lists: [MidiFile.MAX_TRACK_COUNT]ArrayList(i32) = undefined;
         for (0..track_count) |i| {
-            tick_lists[i] = ArrayList(i32).init(allocator);
+            tick_lists[i] = .empty;
         }
         defer for (0..track_count) |i| {
-            tick_lists[i].deinit();
+            tick_lists[i].deinit(allocator);
         };
 
         for (0..track_count) |i| {
-            try MidiFile.readTrack(reader, &message_lists[i], &tick_lists[i]);
+            try MidiFile.readTrack(allocator, reader, &message_lists[i], &tick_lists[i]);
         }
 
         return try MidiFile.mergeTracks(allocator, message_lists[0..track_count], tick_lists[0..track_count], resolution);
@@ -3429,64 +3443,72 @@ pub const MidiFile = struct {
         self.allocator.free(self.messages);
     }
 
-    fn readTrack(reader: anytype, messages: *ArrayList(Message), ticks: *ArrayList(i32)) !void {
+    fn readTrack(allocator: Allocator, reader: anytype, messages: *ArrayList(Message), ticks: *ArrayList(i32)) !void {
         const chunk_type = try BinaryReader.read([4]u8, reader);
         if (!mem.eql(u8, &chunk_type, "MTrk")) {
             return ZiggySynthError.InvalidMidiFile;
         }
 
-        _ = try BinaryReader.readBigEndian(i32, reader);
+        const size = try BinaryReader.readBigEndian(u32, reader);
+        var rc = ReadCounter(@TypeOf(reader)).init(reader);
 
         var tick: i32 = 0;
         var last_status: u8 = 0;
 
         while (true) {
-            const delta = try BinaryReader.readIntVariableLength(reader);
-            const first = try BinaryReader.read(u8, reader);
+            const delta = try BinaryReader.readIntVariableLength(&rc);
+            const first = try BinaryReader.read(u8, &rc);
 
             tick += delta;
 
             if ((first & 128) == 0) {
                 const command = last_status & 0xF0;
                 if (command == 0xC0 or command == 0xD0) {
-                    try messages.append(Message.common1(last_status, first));
-                    try ticks.append(tick);
+                    try messages.append(allocator, Message.common1(last_status, first));
+                    try ticks.append(allocator, tick);
                 } else {
-                    const data2 = try BinaryReader.read(u8, reader);
-                    try messages.append(Message.common2(last_status, first, data2));
-                    try ticks.append(tick);
+                    const data2 = try BinaryReader.read(u8, &rc);
+                    try messages.append(allocator, Message.common2(last_status, first, data2));
+                    try ticks.append(allocator, tick);
                 }
 
                 continue;
             }
 
             switch (first) {
-                0xF0 => try MidiFile.discardData(reader),
-                0xF7 => try MidiFile.discardData(reader),
-                0xFF => switch (try BinaryReader.read(u8, reader)) {
+                0xF0 => try MidiFile.discardData(&rc),
+                0xF7 => try MidiFile.discardData(&rc),
+                0xFF => switch (try BinaryReader.read(u8, &rc)) {
                     0x2F => {
-                        _ = try BinaryReader.read(u8, reader);
-                        try messages.append(Message.endOfTrack());
-                        try ticks.append(tick);
+                        _ = try BinaryReader.read(u8, &rc);
+                        try messages.append(allocator, Message.endOfTrack());
+                        try ticks.append(allocator, tick);
+
+                        // Some MIDI files may have events inserted after the EOT.
+                        // Such events should be ignored.
+                        if (rc.count < size) {
+                            try rc.discardAll(size - rc.count);
+                        }
+
                         return;
                     },
                     0x51 => {
-                        try messages.append(Message.tempoChange(try MidiFile.readTempo(reader)));
-                        try ticks.append(tick);
+                        try messages.append(allocator, Message.tempoChange(try MidiFile.readTempo(&rc)));
+                        try ticks.append(allocator, tick);
                     },
-                    else => try MidiFile.discardData(reader),
+                    else => try MidiFile.discardData(&rc),
                 },
                 else => {
                     const command = first & 0xF0;
                     if (command == 0xC0 or command == 0xD0) {
-                        const data1 = try BinaryReader.read(u8, reader);
-                        try messages.append(Message.common1(first, data1));
-                        try ticks.append(tick);
+                        const data1 = try BinaryReader.read(u8, &rc);
+                        try messages.append(allocator, Message.common1(first, data1));
+                        try ticks.append(allocator, tick);
                     } else {
-                        const data1 = try BinaryReader.read(u8, reader);
-                        const data2 = try BinaryReader.read(u8, reader);
-                        try messages.append(Message.common2(first, data1, data2));
-                        try ticks.append(tick);
+                        const data1 = try BinaryReader.read(u8, &rc);
+                        const data2 = try BinaryReader.read(u8, &rc);
+                        try messages.append(allocator, Message.common2(first, data1, data2));
+                        try ticks.append(allocator, tick);
                     }
                 },
             }
@@ -3496,11 +3518,11 @@ pub const MidiFile = struct {
     }
 
     fn mergeTracks(allocator: Allocator, message_lists: []ArrayList(Message), tick_lists: []ArrayList(i32), resolution: i32) !Self {
-        var merged_messages = ArrayList(Message).init(allocator);
-        defer merged_messages.deinit();
+        var merged_messages: ArrayList(Message) = .empty;
+        defer merged_messages.deinit(allocator);
 
-        var merged_times = ArrayList(f64).init(allocator);
-        defer merged_times.deinit();
+        var merged_times: ArrayList(f64) = .empty;
+        defer merged_times.deinit(allocator);
 
         var indices = mem.zeroes([MidiFile.MAX_TRACK_COUNT]usize);
 
@@ -3538,8 +3560,8 @@ pub const MidiFile = struct {
             if (message.getMessageType() == Message.TEMPO_CHANGE) {
                 tempo = message.getTempo();
             } else {
-                try merged_messages.append(message);
-                try merged_times.append(current_time);
+                try merged_messages.append(allocator, message);
+                try merged_times.append(allocator, current_time);
             }
 
             indices[@intCast(min_index)] += 1;
@@ -3565,7 +3587,7 @@ pub const MidiFile = struct {
 
     fn discardData(reader: anytype) !void {
         const size: usize = @intCast(try BinaryReader.readIntVariableLength(reader));
-        try reader.skipBytes(size, .{});
+        try reader.discardAll(size);
     }
 
     fn readTempo(reader: anytype) !i32 {
@@ -4022,12 +4044,12 @@ const CombFilter = struct {
                 // but the simple Math.Abs version was faster according to some benchmarks.
 
                 var output = self.buffer[buffer_pos];
-                if (@fabs(output) < 1.0E-6) {
+                if (@abs(output) < 1.0E-6) {
                     output = 0.0;
                 }
 
                 self.filter_store = (output * self.damp2) + (self.filter_store * self.damp1);
-                if (@fabs(self.filter_store) < 1.0E-6) {
+                if (@abs(self.filter_store) < 1.0E-6) {
                     self.filter_store = 0.0;
                 }
 
@@ -4094,7 +4116,7 @@ const AllPassFilter = struct {
                 const input = block[block_pos];
 
                 var bufout = self.buffer[buffer_pos];
-                if (@fabs(bufout) < 1.0E-6) {
+                if (@abs(bufout) < 1.0E-6) {
                     bufout = 0.0;
                 }
 
@@ -4129,9 +4151,9 @@ const Chorus = struct {
 
     fn init(allocator: Allocator, sample_rate: i32, delay: f64, depth: f64, frequency: f64) !Self {
         const buffer_length = @as(usize, @intFromFloat(@as(f64, @floatFromInt(sample_rate)) * (delay + depth))) + 2;
-        var buffer_l = try allocator.alloc(f32, buffer_length);
+        const buffer_l = try allocator.alloc(f32, buffer_length);
         errdefer allocator.free(buffer_l);
-        var buffer_r = try allocator.alloc(f32, buffer_length);
+        const buffer_r = try allocator.alloc(f32, buffer_length);
         errdefer allocator.free(buffer_r);
 
         const delay_table_length = @as(usize, @intFromFloat(@round(@as(f64, @floatFromInt(sample_rate)) / frequency)));
@@ -4180,7 +4202,7 @@ const Chorus = struct {
                     position += @as(f64, @floatFromInt(buffer_length));
                 }
 
-                var index1 = @as(usize, @intFromFloat(position));
+                const index1 = @as(usize, @intFromFloat(position));
                 var index2 = index1 + 1;
                 if (index2 == buffer_length) {
                     index2 = 0;
@@ -4203,7 +4225,7 @@ const Chorus = struct {
                     position += @floatFromInt(buffer_length);
                 }
 
-                var index1: usize = @intFromFloat(position);
+                const index1: usize = @intFromFloat(position);
                 var index2: usize = index1 + 1;
                 if (index2 == buffer_length) {
                     index2 = 0;
