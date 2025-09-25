@@ -150,35 +150,6 @@ pub fn main() !void {
     rl.SetTargetFPS(60);
 
     while (!rl.WindowShouldClose()) {
-        if (rl.IsAudioStreamProcessed(stream)) {
-            synthesizer.render(left[0..], right[0..]);
-            for (0..buffer_size) |t| {
-                var left_sample_i32: i32 = @intFromFloat(32768.0 * left[t]);
-                if (left_sample_i32 < -32768) {
-                    left_sample_i32 = -32768;
-                }
-                if (left_sample_i32 > 32767) {
-                    left_sample_i32 = 32767;
-                }
-                var right_sample_i32: i32 = @intFromFloat(32768.0 * right[t]);
-                if (right_sample_i32 < -32768) {
-                    right_sample_i32 = -32768;
-                }
-                if (right_sample_i32 > 32767) {
-                    right_sample_i32 = 32767;
-                }
-                const left_sample_i16: i16 = @truncate(left_sample_i32);
-                const right_sample_i16: i16 = @truncate(right_sample_i32);
-                buffer[2 * t] = left_sample_i16;
-                buffer[2 * t + 1] = right_sample_i16;
-
-                fft_in[t].re = 0.5 * (left[t] + right[t]);
-                fft_in[t].im = 0.0;
-            }
-            rl.UpdateAudioStream(stream, &buffer, buffer_size);
-            fft(buffer_size, &fft_in, &fft_out);
-        }
-
         const mouse_position = rl.GetMousePosition();
         const is_mouse_down = rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT);
         var hovered_index: ?usize = null;
@@ -224,6 +195,35 @@ pub fn main() !void {
                     key.pressed = true;
                 }
             }
+        }
+
+        if (rl.IsAudioStreamProcessed(stream)) {
+            synthesizer.render(left[0..], right[0..]);
+            for (0..buffer_size) |t| {
+                var left_sample_i32: i32 = @intFromFloat(32768.0 * left[t]);
+                if (left_sample_i32 < -32768) {
+                    left_sample_i32 = -32768;
+                }
+                if (left_sample_i32 > 32767) {
+                    left_sample_i32 = 32767;
+                }
+                var right_sample_i32: i32 = @intFromFloat(32768.0 * right[t]);
+                if (right_sample_i32 < -32768) {
+                    right_sample_i32 = -32768;
+                }
+                if (right_sample_i32 > 32767) {
+                    right_sample_i32 = 32767;
+                }
+                const left_sample_i16: i16 = @truncate(left_sample_i32);
+                const right_sample_i16: i16 = @truncate(right_sample_i32);
+                buffer[2 * t] = left_sample_i16;
+                buffer[2 * t + 1] = right_sample_i16;
+
+                fft_in[t].re = 0.5 * (left[t] + right[t]);
+                fft_in[t].im = 0.0;
+            }
+            rl.UpdateAudioStream(stream, &buffer, buffer_size);
+            fft(buffer_size, &fft_in, &fft_out);
         }
 
         rl.BeginDrawing();
