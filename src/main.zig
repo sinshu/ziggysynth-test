@@ -1,4 +1,4 @@
-const std = @import("std");
+﻿const std = @import("std");
 const debug = std.debug;
 const fs = std.fs;
 const heap = std.heap;
@@ -109,8 +109,8 @@ pub fn main() !void {
     const keyboard_margin: f32 = 120.0;
     const keyboard_width = @as(f32, @floatFromInt(screen_width)) - keyboard_margin * 2.0;
     const keyboard_start_x = keyboard_margin;
-    const keyboard_top: f32 = 420.0;
-    const white_key_height: f32 = 300.0;
+    const keyboard_top: f32 = 300.0;
+    const white_key_height: f32 = 350.0;
     const white_key_width = keyboard_width / @as(f32, @floatFromInt(white_count));
     const black_key_width = white_key_width * 0.6;
     const black_key_height = white_key_height * 0.6;
@@ -255,9 +255,9 @@ pub fn main() !void {
 
                 var label_buf: [8:0]u8 = undefined;
                 const label = noteNameZ(&label_buf, key.note);
-                const text_x = @as(c_int, @intFromFloat(key.rect.x + key.rect.width * 0.35));
+                const text_x = @as(c_int, @intFromFloat(key.rect.x + key.rect.width * 0.3));
                 const text_y = @as(c_int, @intFromFloat(key.rect.y + key.rect.height - 40.0));
-                rl.DrawText(label.ptr, text_x, text_y, 24, outlineColor);
+                rl.DrawText(label.ptr, text_x, text_y, 30, outlineColor);
             }
         }
 
