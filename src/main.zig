@@ -136,9 +136,10 @@ pub fn main() !void {
             };
             white_index += 1.0;
         } else {
-            const x_center = keyboard_start_x + (white_index - 0.5) * white_key_width;
+            const base_center = keyboard_start_x + (white_index - 0.5) * white_key_width;
+            const adjusted_center = base_center + white_key_width * 0.5;
             key.rect = rl.Rectangle{
-                .x = x_center - black_key_width / 2.0,
+                .x = adjusted_center - black_key_width / 2.0,
                 .y = keyboard_top,
                 .width = black_key_width,
                 .height = black_key_height,
