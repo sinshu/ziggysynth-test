@@ -1,19 +1,15 @@
-﻿const std = @import("std");
+const std = @import("std");
 const debug = std.debug;
-const fs = std.fs;
+const Io = std.Io;
 const heap = std.heap;
 const mem = std.mem;
-const fmt = std.fmt;
 
 const ziggysynth = @import("ziggysynth.zig");
 const SoundFont = ziggysynth.SoundFont;
 const Synthesizer = ziggysynth.Synthesizer;
 const SynthesizerSettings = ziggysynth.SynthesizerSettings;
 
-const rl = @cImport({
-    @cInclude("raylib.h");
-    @cInclude("raymath.h");
-});
+const rl = @import("raylib");
 
 const CN = @import("./fft.zig").CN;
 const fft = @import("./fft.zig").fft;
@@ -58,10 +54,13 @@ fn noteNameZ(buf: []u8, note: u8) [:0]const u8 {
     const names = [_][]const u8{ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
     const idx = @as(usize, @intCast(note % 12));
     const octave = @as(i32, @intCast(note / 12)) - 1;
-    return fmt.bufPrintZ(buf, "{s}{d}", .{ names[idx], octave }) catch unreachable;
+    var writer = Io.Writer.fixed(buf);
+    writer.print("{s}{d}\x00", .{ names[idx], octave }) catch unreachable;
+    return buf[0 .. writer.end - 1 :0];
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
     var da = heap.DebugAllocator(.{}){};
     const allocator = da.allocator();
     defer debug.assert(da.deinit() == .ok);
@@ -84,10 +83,10 @@ pub fn main() !void {
     var right: [buffer_size]f32 = undefined;
     var buffer: [2 * buffer_size]i16 = undefined;
 
-    var sf2 = try fs.cwd().openFile("TimGM6mb.sf2", .{});
-    defer sf2.close();
+    const sf2 = try Io.Dir.cwd().openFile(io, "TimGM6mb.sf2", .{});
+    defer sf2.close(io);
     var sf2_buffer: [1024]u8 = undefined;
-    var sf2_reader = sf2.reader(&sf2_buffer);
+    var sf2_reader = sf2.reader(io, &sf2_buffer);
     var sound_font = try SoundFont.init(allocator, &sf2_reader.interface);
     defer sound_font.deinit();
 
