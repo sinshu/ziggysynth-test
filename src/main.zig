@@ -1,6 +1,6 @@
 const std = @import("std");
 const debug = std.debug;
-const fs = std.fs;
+const Io = std.Io;
 const heap = std.heap;
 const mem = std.mem;
 
@@ -11,10 +11,7 @@ const SynthesizerSettings = ziggysynth.SynthesizerSettings;
 const MidiFile = ziggysynth.MidiFile;
 const MidiFileSequencer = ziggysynth.MidiFileSequencer;
 
-const rl = @cImport({
-    @cInclude("raylib.h");
-    @cInclude("raymath.h");
-});
+const rl = @import("raylib");
 
 const CN = @import("./fft.zig").CN;
 const fft = @import("./fft.zig").fft;
@@ -29,7 +26,8 @@ const backColor = rl.Color{ .r = 0x37, .g = 0x47, .b = 0x4F, .a = 0xFF };
 const barColor = rl.Color{ .r = 0x60, .g = 0x7D, .b = 0x8B, .a = 0xFF };
 const textColor = rl.Color{ .r = 0xCF, .g = 0xD8, .b = 0xDC, .a = 0xFF };
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
     var da = heap.DebugAllocator(.{}){};
     const allocator = da.allocator();
     defer debug.assert(da.deinit() == .ok);
@@ -50,10 +48,10 @@ pub fn main() !void {
     var buffer: [2 * buffer_size]i16 = undefined;
 
     // Load the SoundFont.
-    var sf2 = try fs.cwd().openFile("TimGM6mb.sf2", .{});
-    defer sf2.close();
+    const sf2 = try Io.Dir.cwd().openFile(io, "TimGM6mb.sf2", .{});
+    defer sf2.close(io);
     var sf2_buffer: [1024]u8 = undefined;
-    var sf2_reader = sf2.reader(&sf2_buffer);
+    var sf2_reader = sf2.reader(io, &sf2_buffer);
     var sound_font = try SoundFont.init(allocator, &sf2_reader.interface);
     defer sound_font.deinit();
 
@@ -63,10 +61,10 @@ pub fn main() !void {
     defer synthesizer.deinit();
 
     // Load the MIDI file.
-    var mid = try fs.cwd().openFile("d_map01.mid", .{});
-    defer mid.close();
+    const mid = try Io.Dir.cwd().openFile(io, "d_map01.mid", .{});
+    defer mid.close(io);
     var mid_buffer: [1024]u8 = undefined;
-    var mid_reader = mid.reader(&mid_buffer);
+    var mid_reader = mid.reader(io, &mid_buffer);
     var midi_file = try MidiFile.init(allocator, &mid_reader.interface);
     defer midi_file.deinit();
 
@@ -113,7 +111,7 @@ pub fn main() !void {
 
         rl.ClearBackground(backColor);
         rl.DrawText("MIDI music playback", 750, 150, 75, textColor);
-        rl.DrawText("with Zig 0.15.1", 1020, 250, 75, textColor);
+        rl.DrawText("with Zig 0.17.0", 1020, 250, 75, textColor);
 
         const lim = screen_width / 4;
         for (0..lim) |t| {

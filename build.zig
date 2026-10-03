@@ -83,12 +83,9 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    const raylib_dep = b.dependency("raylib", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const raylib = raylib_dep.artifact("raylib");
-    exe.linkLibrary(raylib);
+    const raylib = @import("zig-build/raylib.zig").build(b, target, optimize);
+    exe.root_module.linkLibrary(raylib.library);
+    exe.root_module.addImport("raylib", raylib.bindings);
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
@@ -118,9 +115,7 @@ pub fn build(b: *std.Build) void {
 
     // This allows the user to pass arguments to the application in the build
     // command itself, like this: `zig build run -- arg1 arg2 etc`
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
 
     // Creates an executable that will run `test` blocks from the provided module.
     // Here `mod` needs to define a target, which is why earlier we made sure to
